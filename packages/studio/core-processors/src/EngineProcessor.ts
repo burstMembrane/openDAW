@@ -156,6 +156,9 @@ export class EngineProcessor extends AudioWorkletProcessor implements EngineCont
                 fetchNamWasm(): Promise<ArrayBuffer> {
                     return dispatcher.dispatchAndReturn(this.fetchNamWasm)
                 }
+                fetchExternalWasm(processorType: string): Promise<ArrayBuffer> {
+                    return dispatcher.dispatchAndReturn(this.fetchExternalWasm, processorType)
+                }
                 notifyClipSequenceChanges(changes: ClipSequencingUpdates): void {
                     dispatcher.dispatchAndForget(this.notifyClipSequenceChanges, changes)
                 }

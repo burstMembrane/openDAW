@@ -31,6 +31,7 @@ import {WerkstattParameterBox} from "./audio-effects/WerkstattParameterBox"
 import {WerkstattSampleBox} from "./audio-effects/WerkstattSampleBox"
 import {SpielwerkDeviceBox} from "./midi-effects/SpielwerkDeviceBox"
 import {ApparatDeviceBox} from "./instruments/ApparatDeviceBox"
+import {ExternalWasmEffectDeviceBox} from "./audio-effects/ExternalWasmEffectDeviceBox"
 
 export const DeviceDefinitions = [
     UnknownAudioEffectDevice,
@@ -67,5 +68,6 @@ export const DeviceDefinitions = [
     WerkstattParameterBox,
     WerkstattSampleBox,
     SpielwerkDeviceBox,
-    ApparatDeviceBox
+    ApparatDeviceBox,
+    ExternalWasmEffectDeviceBox
 ]

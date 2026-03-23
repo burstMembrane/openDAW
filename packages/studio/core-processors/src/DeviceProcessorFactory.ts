@@ -58,6 +58,8 @@ import {
     TidalDeviceBoxAdapter,
     UnknownAudioEffectDeviceBoxAdapter,
     UnknownMidiEffectDeviceBoxAdapter,
+    ExternalWasmEffectDeviceBox,
+    ExternalWasmEffectDeviceBoxAdapter,
     VaporisateurDeviceBoxAdapter,
     VelocityDeviceBoxAdapter,
     WaveshaperDeviceBoxAdapter,
@@ -65,6 +67,7 @@ import {
     ZeitgeistDeviceBoxAdapter
 } from "@opendaw/studio-adapters"
 import {NopDeviceProcessor} from "./devices/audio-effects/NopDeviceProcessor"
+import {ExternalWasmEffectProcessor} from "./devices/audio-effects/ExternalWasmEffectProcessor"
 import {asDefined, Maybe} from "@opendaw/lib-std"
 import {EngineContext} from "./EngineContext"
 import {Box} from "@opendaw/lib-box"
@@ -144,7 +147,12 @@ export namespace MidiEffectDeviceProcessorFactory {
 export namespace AudioEffectDeviceProcessorFactory {
     export const create = (context: EngineContext,
                            box: Box): AudioEffectDeviceProcessor =>
+        // Cast: extends BoxVisitor with ExternalWasmEffectDeviceBox visitor (defined outside studio-boxes)
         asDefined(box.accept<BoxVisitor<AudioEffectDeviceProcessor>>({
+            ...{
+                visitExternalWasmEffectDeviceBox: (box: ExternalWasmEffectDeviceBox): AudioEffectDeviceProcessor =>
+                    new ExternalWasmEffectProcessor(context, context.boxAdapters.adapterFor(box, ExternalWasmEffectDeviceBoxAdapter))
+            } as Partial<BoxVisitor<AudioEffectDeviceProcessor>>,
             visitUnknownAudioEffectDeviceBox: (box: UnknownAudioEffectDeviceBox): AudioEffectDeviceProcessor =>
                 new NopDeviceProcessor(context, context.boxAdapters.adapterFor(box, UnknownAudioEffectDeviceBoxAdapter)),
             visitStereoToolDeviceBox: (box: StereoToolDeviceBox): AudioEffectDeviceProcessor =>

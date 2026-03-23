@@ -111,6 +111,9 @@ export class OfflineEngineRenderer {
                 const response = await fetch(url)
                 return response.arrayBuffer()
             },
+            fetchExternalWasm: async (_processorType: string): Promise<ArrayBuffer> => {
+                throw new Error("External WASM effects are not supported in offline rendering")
+            },
             notifyClipSequenceChanges: (): void => {},
             switchMarkerState: (): void => {},
             deviceMessage: (uuid: string, message: string): void => {

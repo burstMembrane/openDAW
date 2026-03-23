@@ -124,6 +124,8 @@ import {BoxAdapter} from "./BoxAdapter"
 import {ZeitgeistDeviceBoxAdapter} from "./devices/midi-effects/ZeitgeistDeviceBoxAdapter"
 import {GrooveShuffleBoxAdapter} from "./grooves/GrooveShuffleBoxAdapter"
 import {UnknownAudioEffectDeviceBoxAdapter} from "./devices/audio-effects/UnknownAudioEffectDeviceBoxAdapter"
+import {ExternalWasmEffectDeviceBox} from "./devices/audio-effects/ExternalWasmEffectDeviceBox"
+import {ExternalWasmEffectDeviceBoxAdapter} from "./devices/audio-effects/ExternalWasmEffectDeviceBoxAdapter"
 import {UnknownMidiEffectDeviceBoxAdapter} from "./devices/midi-effects/UnknownMidiEffectDeviceBoxAdapter"
 import {SoundfontDeviceBoxAdapter} from "./devices/instruments/SoundfontDeviceBoxAdapter"
 import {SoundfontFileBoxAdapter} from "./soundfont/SoundfontFileBoxAdapter"
@@ -199,6 +201,10 @@ export class BoxAdapters implements Terminable {
 
     #create(unknownBox: Box): BoxAdapter {
         return asDefined(unknownBox.accept<BoxVisitor<BoxAdapter>>({
+            ...{
+                visitExternalWasmEffectDeviceBox: (box: ExternalWasmEffectDeviceBox) =>
+                    new ExternalWasmEffectDeviceBoxAdapter(this.#context, box)
+            } as Partial<BoxVisitor<BoxAdapter>>,
             visitArpeggioDeviceBox: (box: ArpeggioDeviceBox) => new ArpeggioDeviceBoxAdapter(this.#context, box),
             visitAudioBusBox: (box: AudioBusBox): BoxAdapter => new AudioBusBoxAdapter(this.#context, box),
             visitAudioClipBox: (box: AudioClipBox) => new AudioClipBoxAdapter(this.#context, box),

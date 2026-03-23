@@ -47,6 +47,17 @@ import type {SoundFont2} from "soundfont2"
 export class EngineWorklet extends AudioWorkletNode implements Engine {
     static ID: int = 0 | 0
 
+    /**
+     * External WASM provider: called when the engine worklet requests WASM
+     * for an external processor type (e.g. "rubberband"). The host application
+     * registers this via setExternalWasmProvider() before starting the engine.
+     */
+    static #externalWasmProvider: Nullable<(processorType: string) => Promise<ArrayBuffer>> = null
+
+    static setExternalWasmProvider(provider: (processorType: string) => Promise<ArrayBuffer>): void {
+        EngineWorklet.#externalWasmProvider = provider
+    }
+
     readonly id = EngineWorklet.ID++
 
     readonly #terminator: Terminator = new Terminator()
@@ -212,6 +223,13 @@ export class EngineWorklet extends AudioWorkletNode implements Engine {
                     const url = new URL("@opendaw/nam-wasm/nam.wasm", import.meta.url)
                     const response = await fetch(url)
                     return response.arrayBuffer()
+                },
+                fetchExternalWasm: async (processorType: string): Promise<ArrayBuffer> => {
+                    const provider = EngineWorklet.#externalWasmProvider
+                    if (provider === null) {
+                        throw new Error(`No external WASM provider registered for "${processorType}"`)
+                    }
+                    return provider(processorType)
                 },
                 notifyClipSequenceChanges: (changes: ClipSequencingUpdates): void => {
                     changes.stopped.forEach(uuid => {
