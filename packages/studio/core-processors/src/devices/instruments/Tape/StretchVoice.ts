@@ -5,7 +5,9 @@
  * from the file at 1.0x and calls process(inputN, outputN) which guarantees
  * exactly outputN frames — no ring buffer, no underruns.
  *
- * Falls back to PitchVoice behavior (vinyl) if the handler isn't loaded.
+ * At rate=1.0, uses the original PitchVoice behavior (zero overhead).
+ * Calls seek() on Signalsmith when created at a non-zero offset to keep
+ * the stretcher in sync with the playhead.
  */
 
 import {int, UUID} from "@opendaw/lib-std"
@@ -28,13 +30,15 @@ export class StretchVoice {
     #blockOffset: int
     #fadeOutBlockOffset: int = 0
 
-    // Signalsmith handler
-    readonly #handler: ExternalWasmRawDspHandler | null
-    readonly #instanceId: number
+    // Signalsmith handler (null if WASM not loaded)
+    #handler: ExternalWasmRawDspHandler | null
+    #instanceId: number
 
-    // Temp buffers for reading file samples
+    // Temp buffers
     readonly #tempL: Float32Array = new Float32Array(256)
     readonly #tempR: Float32Array = new Float32Array(256)
+    readonly #stretchOutL: Float32Array = new Float32Array(256)
+    readonly #stretchOutR: Float32Array = new Float32Array(256)
 
     constructor(sourceUuid: UUID.Bytes, output: AudioBuffer, data: AudioData, fadeLength: number, playbackRate: number,
                 offset: number = 0.0, blockOffset: int = 0) {
@@ -56,22 +60,11 @@ export class StretchVoice {
             this.#fadeDirection = 1.0
         }
 
-        // Get Signalsmith Stretch handler for pitch-preserving time-stretch
-        const h = ExternalWasmDspRegistry.get("signalsmith")
-        if (h !== undefined && h.ready && "processRaw" in h) {
-            const raw = h as ExternalWasmRawDspHandler
-            const id = raw.createInstance()
-            if (id >= 0) {
-                raw.setParam(id, 0, 0.0)
-                this.#handler = raw
-                this.#instanceId = id
-            } else {
-                this.#handler = null
-                this.#instanceId = -1
-            }
-        } else {
-            this.#handler = null
-            this.#instanceId = -1
+        // Only create a Signalsmith instance if rate != 1.0
+        this.#handler = null
+        this.#instanceId = -1
+        if (Math.abs(playbackRate - 1.0) > 0.01) {
+            this.#initStretchInstance(offset, playbackRate)
         }
     }
 
@@ -87,21 +80,77 @@ export class StretchVoice {
             this.#fadeProgress = 0.0
             this.#fadeOutBlockOffset = blockOffset
         }
+        // Destroy the Signalsmith instance when voice starts fading out
+        this.#destroyStretchInstance()
     }
 
     setPlaybackRate(rate: number): void {
+        const wasUnity = Math.abs(this.#playbackRate - 1.0) < 0.01
         this.#playbackRate = rate
+        const isUnity = Math.abs(rate - 1.0) < 0.01
+        // Transition between stretch and vinyl modes
+        if (wasUnity && !isUnity && this.#handler === null) {
+            this.#initStretchInstance(this.#readPosition, rate)
+        } else if (!wasUnity && isUnity) {
+            this.#destroyStretchInstance()
+        }
     }
 
     process(bufferStart: int, bufferCount: int, fadingGainBuffer: Float32Array): void {
         const playbackRate = this.#playbackRate
-        const useStretch = this.#handler !== null && this.#instanceId >= 0 && Math.abs(playbackRate - 1.0) > 1e-6
-
+        const useStretch = this.#handler !== null && this.#instanceId >= 0 && Math.abs(playbackRate - 1.0) > 0.01
         if (useStretch) {
             this.#processStretched(bufferStart, bufferCount, fadingGainBuffer)
         } else {
             this.#processVinyl(bufferStart, bufferCount, fadingGainBuffer)
         }
+    }
+
+    #initStretchInstance(offset: number, playbackRate: number): void {
+        const h = ExternalWasmDspRegistry.get("signalsmith")
+        if (h === undefined || !h.ready || !("processRaw" in h)) { return }
+        const raw = h as ExternalWasmRawDspHandler
+        const id = raw.createInstance()
+        if (id < 0) { return }
+        raw.setParam(id, 0, 0.0) // no pitch transposition
+        // Seek to the current file position so Signalsmith is in sync with the playhead
+        if (offset > 0) {
+            raw.setTimeRatio(id, 0) // setTimeRatio is a no-op, but seek uses the handler
+            // Feed some initial samples at the offset position to prime the stretcher
+            const {frames, numberOfFrames} = this.#data
+            const framesL = frames[0]
+            const framesR = frames.length === 1 ? frames[0] : frames[1]
+            const primeSamples = Math.min(128, numberOfFrames - (offset | 0))
+            if (primeSamples > 0) {
+                let readPos = offset
+                for (let i = 0; i < primeSamples; i++) {
+                    const readInt = readPos | 0
+                    if (readInt >= 0 && readInt < numberOfFrames - 1) {
+                        const alpha = readPos - readInt
+                        this.#tempL[i] = framesL[readInt] + alpha * (framesL[readInt + 1] - framesL[readInt])
+                        this.#tempR[i] = framesR[readInt] + alpha * (framesR[readInt + 1] - framesR[readInt])
+                    } else {
+                        this.#tempL[i] = 0
+                        this.#tempR[i] = 0
+                    }
+                    readPos += 1.0
+                }
+                // Feed and discard output to prime the stretcher's internal state
+                const outSamples = Math.max(1, Math.round(primeSamples / playbackRate))
+                raw.processRaw(id, this.#tempL, this.#tempR, primeSamples,
+                    this.#stretchOutL, this.#stretchOutR, 0, outSamples)
+            }
+        }
+        this.#handler = raw
+        this.#instanceId = id
+    }
+
+    #destroyStretchInstance(): void {
+        if (this.#handler !== null && this.#instanceId >= 0) {
+            this.#handler.destroyInstance(this.#instanceId)
+        }
+        this.#handler = null
+        this.#instanceId = -1
     }
 
     #processStretched(bufferStart: int, bufferCount: int, fadingGainBuffer: Float32Array): void {
@@ -130,14 +179,15 @@ export class StretchVoice {
             readPos += 1.0
         }
 
-        // Signalsmith: process(inputN, outputN) guarantees exactly outputN frames
+        // Signalsmith: process(inputN, outputN) guarantees exactly outputN frames.
+        // Write to temp buffers, then += into output (supports overlapping voices).
         const written = this.#handler!.processRaw(
             this.#instanceId,
             this.#tempL, this.#tempR, inputSamples,
-            outL, outR, bufferStart, bufferCount
+            this.#stretchOutL, this.#stretchOutR, 0, bufferCount
         )
 
-        // Apply fade envelope (additive to support overlapping voices)
+        // Apply fade envelope and add to output (additive for overlapping voices)
         let state = this.#state as VoiceState
         let fadeDirection = this.#fadeDirection
         let fadeProgress = this.#fadeProgress
@@ -156,14 +206,10 @@ export class StretchVoice {
                     if (++fadeProgress >= fadeLength) { state = VoiceState.Done; break }
                 }
             } else { amplitude = 1.0 }
-
             if (i < written) {
-                // processRaw wrote directly to outL/outR — apply gain in place
-                // Note: outL[j] was written by processRaw, not +=, so we need to
-                // handle the additive pattern for overlapping voices
                 const gain = amplitude * fadingGainBuffer[i]
-                outL[j] = outL[j] * gain
-                outR[j] = outR[j] * gain
+                outL[j] += this.#stretchOutL[i] * gain
+                outR[j] += this.#stretchOutR[i] * gain
             }
         }
         this.#state = state
@@ -172,14 +218,12 @@ export class StretchVoice {
 
         // Advance file position at the desired rate
         this.#readPosition += playbackRate * bufferCount
-
         const fadeOutThreshold = numberOfFrames - fadeLength * playbackRate
         if (this.#state === VoiceState.Active && this.#readPosition >= fadeOutThreshold) {
             this.#state = VoiceState.Fading
             this.#fadeDirection = -1.0
             this.#fadeProgress = 0.0
         }
-
         this.#blockOffset = 0
         this.#fadeOutBlockOffset = 0
     }
