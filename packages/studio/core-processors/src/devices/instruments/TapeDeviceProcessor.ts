@@ -20,12 +20,13 @@ import {DeviceProcessor} from "../../DeviceProcessor"
 import {NoteEventTarget} from "../../NoteEventSource"
 import {VOICE_FADE_DURATION} from "./Tape/constants"
 import {PitchVoice} from "./Tape/PitchVoice"
+import {StretchVoice} from "./Tape/StretchVoice"
 import {TimeStretchSequencer} from "./Tape/TimeStretchSequencer"
 
 type Lane = {
     adapter: TrackBoxAdapter
-    pitchVoices: SortedSet<UUID.Bytes, PitchVoice>
-    fadingVoices: Array<PitchVoice>
+    pitchVoices: SortedSet<UUID.Bytes, StretchVoice>
+    fadingVoices: Array<StretchVoice>
     sequencer: TimeStretchSequencer
 }
 
@@ -58,7 +59,7 @@ export class TapeDeviceProcessor extends AbstractProcessor implements DeviceProc
             this.#adapter.deviceHost().audioUnitBoxAdapter().tracks.catchupAndSubscribe({
                 onAdd: (adapter: TrackBoxAdapter) => this.#lanes.add({
                     adapter,
-                    pitchVoices: UUID.newSet<PitchVoice>(voice => voice.sourceUuid),
+                    pitchVoices: UUID.newSet<StretchVoice>(voice => voice.sourceUuid),
                     fadingVoices: [],
                     sequencer: new TimeStretchSequencer()
                 }),
@@ -261,18 +262,18 @@ export class TapeDeviceProcessor extends AbstractProcessor implements DeviceProc
         const existing = lane.pitchVoices.getOrNull(sourceUuid)
         if (existing === null) {
             lane.pitchVoices.add(
-                new PitchVoice(sourceUuid, this.#audioOutput, data, fadeLengthSamples, playbackRate, offset, blockOffset), true)
+                new StretchVoice(sourceUuid, this.#audioOutput, data, fadeLengthSamples, playbackRate, offset, blockOffset), true)
         } else if (existing.isFadingOut()) {
             lane.fadingVoices.push(existing)
             lane.pitchVoices.add(
-                new PitchVoice(sourceUuid, this.#audioOutput, data, fadeLengthSamples, playbackRate, offset, blockOffset), true)
+                new StretchVoice(sourceUuid, this.#audioOutput, data, fadeLengthSamples, playbackRate, offset, blockOffset), true)
         } else {
             const drift = Math.abs(existing.readPosition - offset)
             if (drift > fadeLengthSamples) {
                 existing.startFadeOut(blockOffset)
                 lane.fadingVoices.push(existing)
                 lane.pitchVoices.add(
-                    new PitchVoice(sourceUuid, this.#audioOutput, data, fadeLengthSamples, playbackRate, offset, blockOffset), true)
+                    new StretchVoice(sourceUuid, this.#audioOutput, data, fadeLengthSamples, playbackRate, offset, blockOffset), true)
             } else {
                 existing.setPlaybackRate(playbackRate)
             }

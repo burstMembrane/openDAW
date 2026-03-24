@@ -44,7 +44,27 @@ export interface ExternalWasmDspHandler {
 }
 
 /**
+ * Extended interface for handlers that support raw buffer processing
+ * (used by StretchVoice for direct time-stretching inside TapeDevice).
+ */
+export interface ExternalWasmRawDspHandler extends ExternalWasmDspHandler {
+    /** Set time ratio on an instance (1.0 = no change, 0.5 = double speed, 2.0 = half speed) */
+    setTimeRatio(id: number, ratio: number): void
+
+    /**
+     * Process raw Float32Array buffers (not OpenDAW AudioBuffer).
+     * Feed inputL/inputR[0..inputFrames-1] to the DSP.
+     * Retrieve output into the per-instance ring buffer.
+     * Read outputFrames from the ring into outputL/outputR[0..outputFrames-1].
+     * Returns number of frames actually written to output.
+     */
+    processRaw(id: number,
+               inputL: Float32Array, inputR: Float32Array, inputFrames: number,
+               outputL: Float32Array, outputR: Float32Array, outputStart: number, outputFrames: number): number
+}
+
+/**
  * Registry of external WASM DSP handlers, keyed by processor type name.
- * Handlers register themselves at module load time (e.g. in RubberbandDspHandler.ts).
+ * Handlers register themselves at module load time (e.g. in SignalsmithDspHandler.ts).
  */
 export const ExternalWasmDspRegistry = new Map<string, ExternalWasmDspHandler>()
