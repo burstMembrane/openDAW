@@ -129,7 +129,27 @@ class SignalsmithDspHandlerImpl implements ExternalWasmRawDspHandler {
     process(id: number, input: AudioBuffer, output: AudioBuffer, s0: number, s1: number): void {
         const [inL, inR] = input.channels()
         const [outL, outR] = output.channels()
-        for (let i = s0; i < s1; i++) { outL[i] = inL[i]; outR[i] = inR[i] }
+        const inst = this.#instances.get(id)
+        if (!inst || !this.#exports || !this.#heapRef) {
+            for (let i = s0; i < s1; i++) { outL[i] = inL[i]; outR[i] = inR[i] }
+            return
+        }
+        const exports = this.#exports
+        let heapF32 = this.#heapRef.HEAPF32
+        const ptrF32 = inst.bufferPtr >> 2
+        const len = inst.bufferLength
+        const frameCount = Math.min(s1 - s0, len)
+        for (let i = 0; i < frameCount; i++) {
+            heapF32[ptrF32 + i] = inL[s0 + i]
+            heapF32[ptrF32 + len + i] = inR[s0 + i]
+        }
+        exports.process(inst.wasmId, frameCount, frameCount)
+        heapF32 = this.#heapRef.HEAPF32
+        const outBase = len * CHANNELS
+        for (let i = 0; i < frameCount; i++) {
+            outL[s0 + i] = heapF32[ptrF32 + outBase + i]
+            outR[s0 + i] = heapF32[ptrF32 + outBase + len + i]
+        }
     }
 
     processRaw(id: number,
