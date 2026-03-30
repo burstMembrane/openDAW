@@ -45,7 +45,7 @@
     "@opendaw/studio-boxes": "^0.0.83",
     "@opendaw/studio-enums": "^0.0.68",
     "dropbox": "^10.34.0",
-    "y-websocket": "^1.4.5",
+    "y-websocket": "^2.1.0",
     "yjs": "^13.6.27",
     "zod": "^4.1.12"
   },
