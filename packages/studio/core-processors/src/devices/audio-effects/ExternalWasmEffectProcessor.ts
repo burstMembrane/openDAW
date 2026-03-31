@@ -93,8 +93,10 @@ export class ExternalWasmEffectProcessor extends AbstractProcessor implements Au
         const [inL, inR] = input.channels()
         const [outL, outR] = this.#output.channels()
 
-        if (this.#terminated || this.#handler === null || !this.#handler.ready || this.#instanceId < 0) {
-            // Passthrough
+        if (this.#terminated || this.#handler === null || !this.#handler.ready || this.#instanceId < 0 || this.#pitchSemitones === 0.0) {
+            // Passthrough when handler not ready or no pitch shift active.
+            // Bypassing WASM at zero semitones avoids overlap-add priming
+            // artefacts that cause AM modulation on cold start.
             for (let i = 0; i < RenderQuantum; i++) {
                 outL[i] = inL[i]
                 outR[i] = inR[i]
